@@ -10,11 +10,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
+import java.util.LinkedHashSet;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -26,6 +32,9 @@ public class InMemoryRepository<E, I> {
   private final ObjectMapper mapper;
   private final Function<E, I> idOfE;
   private final Class<E> type;
+  private final Set<Consumer<Change>> listeners = new LinkedHashSet<>();
+
+  private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
   public InMemoryRepository(ObjectMapper mapper, Function<E, I> idOfE, Class<E> type) {
     this.mapper = Objects.requireNonNull(mapper, "mapper");
@@ -62,11 +71,12 @@ public class InMemoryRepository<E, I> {
     return new InMemoryRepository<T, I>(mapper, idOfE::apply, type);
   }
 
-  public void save(E aggregate) {
+  public synchronized void save(E aggregate) {
     Objects.requireNonNull(aggregate, "aggregate");
     final I id = idOfE.apply(aggregate);
     final ObjectNode object = mapper.convertValue(aggregate, ObjectNode.class);
-    db.put(id, object);
+    final ObjectNode before = db.put(id, object);
+    executor.submit(() -> listeners.forEach(l -> l.accept(new Change(before, object))));
   }
 
   public E byId(I id) {
@@ -100,4 +110,50 @@ public class InMemoryRepository<E, I> {
     return db.isEmpty();
   }
 
+  public void onChange(Consumer<Change> listener) {
+    listeners.add(new ExceptionHandlingConsumer<>(listener));
+  }
+
+  private static class ExceptionHandlingConsumer<T> implements Consumer<T> {
+    private final Consumer<T> delegate;
+
+    ExceptionHandlingConsumer(Consumer<T> delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public void accept(T t) {
+      try {
+        delegate.accept(t);
+      } catch (Exception e) {
+        // TODO: log
+      }
+    }
+  }
+
+  public class Change {
+    private final JsonNode before;
+    private final JsonNode after;
+
+    public Change(JsonNode before, JsonNode after) {
+      this.before = before;
+      this.after = Objects.requireNonNull(after, "after");
+    }
+
+    public Optional<JsonNode> jsonBefore() {
+      return Optional.ofNullable(before);
+    }
+
+    public JsonNode jsonAfter() {
+      return after;
+    }
+
+    public Optional<E> before() {
+      return jsonBefore().map(b -> mapper.convertValue(b, type));
+    }
+
+    public E after() {
+      return mapper.convertValue(after, type);
+    }
+  }
 }
