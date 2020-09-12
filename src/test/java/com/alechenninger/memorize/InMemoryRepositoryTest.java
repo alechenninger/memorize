@@ -3,8 +3,12 @@
  */
 package com.alechenninger.memorize;
 
+import static com.alechenninger.memorize.InMemoryRepository.stream;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.alechenninger.memorize.Aggregate.Nested;
 import com.alechenninger.memorize.Aggregate.Value;
 import org.junit.jupiter.api.Test;
 
@@ -18,4 +22,39 @@ class InMemoryRepositoryTest {
     assertDoesNotThrow(() -> repository.byId(Value.of("test")));
   }
 
+  @Test
+  void filtersByJson() {
+    repository.save(new Aggregate(Value.of("test1")));
+    repository.save(new Aggregate(Value.of("othertest")));
+    repository.save(new Aggregate(Value.of("test2")));
+
+    assertEquals(
+        2,
+        repository.byJsonPredicate(o -> o.at("/value").asText().startsWith("test")).count());
+  }
+
+  @Test
+  void demonstrateJsonPointer() {
+    final Aggregate test = new Aggregate(Value.of("test1"));
+    test.addMore(Value.of("a"), Value.of("b"));
+    repository.save(test);
+
+    assertEquals(
+        1,
+        repository.byJsonPredicate(o -> o.at("/others/1").asText().equals("b")).count());
+  }
+
+  @Test
+  void demonstrateJsonPointer2() {
+    final Aggregate test = new Aggregate(Value.of("test1"));
+    test.addNested(new Nested(Value.of("a")));
+    test.addNested(new Nested(Value.of("b")));
+    repository.save(test);
+
+    assertTrue(repository
+        .byJsonPredicate(o ->
+            stream(o.path("nesteds")).anyMatch(n -> n.path("value").asText().equals("b")))
+        .findAny()
+        .isPresent());
+  }
 }
