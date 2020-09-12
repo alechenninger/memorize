@@ -27,16 +27,31 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class InMemoryRepository<E, I> {
-  private final ConcurrentHashMap<I, ObjectNode> db = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<I, ObjectNode> db;
 
+  private final Set<Consumer<Change>> listeners;
   private final ObjectMapper mapper;
+
   private final Function<E, I> idOfE;
   private final Class<E> type;
-  private final Set<Consumer<Change>> listeners = new LinkedHashSet<>();
-
   private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
   public InMemoryRepository(ObjectMapper mapper, Function<E, I> idOfE, Class<E> type) {
+    this(new ConcurrentHashMap<>(), new LinkedHashSet<>(), mapper, idOfE, type);
+  }
+
+  public InMemoryRepository(Function<E, I> idOfE, Class<E> type) {
+    this(defaultObjectMapper(), idOfE, type);
+  }
+
+  private InMemoryRepository(
+      ConcurrentHashMap<I, ObjectNode> db,
+      Set<Consumer<Change>> listeners,
+      ObjectMapper mapper,
+      Function<E, I> idOfE,
+      Class<E> type) {
+    this.db = Objects.requireNonNull(db, "db");
+    this.listeners = Objects.requireNonNull(listeners, "listeners");
     this.mapper = Objects.requireNonNull(mapper, "mapper");
     this.idOfE = Objects.requireNonNull(idOfE, "idOfE");
     this.type = Objects.requireNonNull(type, "type");
@@ -51,10 +66,6 @@ public class InMemoryRepository<E, I> {
         false);
   }
 
-  public InMemoryRepository(Function<E, I> idOfE, Class<E> type) {
-    this(defaultObjectMapper(), idOfE, type);
-  }
-
   private static ObjectMapper defaultObjectMapper() {
     return new ObjectMapper()
         .registerModule(new JavaTimeModule())
@@ -67,16 +78,15 @@ public class InMemoryRepository<E, I> {
             /* creators*/ JsonAutoDetect.Visibility.NONE));
   }
 
-  public <T extends E> InMemoryRepository<T, I> withSubtype(Class<T> type) {
-    return new InMemoryRepository<T, I>(mapper, idOfE::apply, type);
-  }
-
   public synchronized void save(E aggregate) {
     Objects.requireNonNull(aggregate, "aggregate");
     final I id = idOfE.apply(aggregate);
     final ObjectNode object = mapper.convertValue(aggregate, ObjectNode.class);
     final ObjectNode before = db.put(id, object);
-    executor.submit(() -> listeners.forEach(l -> l.accept(new Change(before, object))));
+
+    if (!listeners.isEmpty()) {
+      executor.submit(() -> listeners.forEach(l -> l.accept(new Change(before, object))));
+    }
   }
 
   public E byId(I id) {
