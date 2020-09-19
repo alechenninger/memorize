@@ -80,9 +80,9 @@ public class InMemoryRepository<E, I> {
 
   public synchronized void save(E aggregate) {
     Objects.requireNonNull(aggregate, "aggregate");
-    final I id = idOfE.apply(aggregate);
-    final ObjectNode object = mapper.convertValue(aggregate, ObjectNode.class);
-    final ObjectNode before = db.put(id, object);
+    final var id = idOfE.apply(aggregate);
+    final var object = mapper.convertValue(aggregate, ObjectNode.class);
+    final var before = db.put(id, object);
 
     if (!listeners.isEmpty()) {
       executor.submit(() -> listeners.forEach(l -> l.accept(new Change(before, object))));
@@ -96,16 +96,12 @@ public class InMemoryRepository<E, I> {
     return mapper.convertValue(object, type);
   }
 
-  public Stream<E> byJsonPredicate(Predicate<ObjectNode> filter) {
+  public Stream<E> byPredicate(Predicate<ObjectNode> filter) {
     Objects.requireNonNull(filter, "filter");
 
     return db.values().stream()
         .filter(filter)
         .map(o -> mapper.convertValue(o, type));
-  }
-
-  public Stream<E> byPredicate(Predicate<E> filter) {
-    return all().filter(filter);
   }
 
   public Stream<E> all() {

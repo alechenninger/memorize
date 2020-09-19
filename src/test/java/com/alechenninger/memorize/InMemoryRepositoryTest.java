@@ -30,7 +30,7 @@ class InMemoryRepositoryTest {
 
     assertEquals(
         2,
-        repository.byJsonPredicate(o -> o.at("/value").asText().startsWith("test")).count());
+        repository.byPredicate(o -> o.at("/value").asText().startsWith("test")).count());
   }
 
   @Test
@@ -41,7 +41,7 @@ class InMemoryRepositoryTest {
 
     assertEquals(
         1,
-        repository.byJsonPredicate(o -> o.at("/others/1").asText().equals("b")).count());
+        repository.byPredicate(o -> o.at("/others/1").asText().equals("b")).count());
   }
 
   @Test
@@ -52,7 +52,7 @@ class InMemoryRepositoryTest {
     repository.save(test);
 
     assertTrue(repository
-        .byJsonPredicate(o ->
+        .byPredicate(o ->
             stream(o.path("nesteds")).anyMatch(n -> n.path("value").asText().equals("b")))
         .findAny()
         .isPresent());
